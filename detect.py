@@ -3,8 +3,9 @@ import os
 import platform
 import sys
 from pathlib import Path
-
 import torch
+from PIL import Image
+import numpy as np
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLO root directory
@@ -19,6 +20,61 @@ from utils.general import (LOGGER, Profile, check_file, check_img_size, check_im
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
 
+import torch
+from PIL import Image
+import numpy as np
+from models.common import DetectMultiBackend
+from utils.general import non_max_suppression, scale_boxes
+from utils.torch_utils import select_device
+from utils.augmentations import letterbox
+
+def detect_pil_image(pil_img, weights='yolov9.pt', img_size=640, conf_thres=0.25, iou_thres=0.45, device=''):
+    # Convert PIL image to numpy array
+    img = np.array(pil_img)
+
+    # Ensure image is in RGB format
+    if img.shape[-1] == 4:  # Check if image is RGBA
+        img = img[..., :3]  # Convert to RGB
+
+    # Letterbox the image to fit in the model
+    img, _, _ = letterbox(img, new_shape=img_size, auto=False)
+
+    # Convert BGR (OpenCV format) to RGB
+    img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3xHxW
+    img = np.ascontiguousarray(img)
+
+    # Convert to torch tensor
+    img = torch.from_numpy(img).to(device).float()
+    img /= 255.0  # Scale image from 0 to 255 to 0 to 1
+    if img.ndimension() == 3:
+        img = img.unsqueeze(0)
+
+    # Load model
+    model = DetectMultiBackend(weights, device=device, dnn=False)
+    model.eval()
+
+    # Inference
+    pred = model(img, augment=False, visualize=False)
+
+    # Apply NMS
+    pred = non_max_suppression(pred, conf_thres, iou_thres)
+
+    # Process detections
+    detections = []
+    for i, det in enumerate(pred):  # detections per image
+        if len(det):
+            # Rescale boxes from img_size to im0 size
+            det[:, :4] = scale_boxes(img.shape[2:], det[:, :4], pil_img.size).round()
+
+            for *xyxy, conf, cls in reversed(det):
+                x1, y1, x2, y2 = map(int, xyxy)
+                bbox = [x1, y1, x2, y2]
+                score = float(conf)
+                category = int(cls)
+                label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                detections.append({"bbox": bbox, "score": score, "category": label})
+
+    return detections
 
 @smart_inference_mode()
 def run(
@@ -49,6 +105,7 @@ def run(
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
         vid_stride=1,  # video frame-rate stride
+        img_pil=None,  # PIL image
 ):
     source = str(source)
     save_img = not nosave and not source.endswith('.txt')  # save inference images
