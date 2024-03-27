@@ -43,19 +43,18 @@ def detect_pil_image(pil_img, weights='yolov9.pt', img_size=640, conf_thres=0.25
     img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3xHxW
     img = np.ascontiguousarray(img)
 
+    device = select_device(device)
     # Convert to torch tensor
     img = torch.from_numpy(img).to(device).float()
     img /= 255.0  # Scale image from 0 to 255 to 0 to 1
     if img.ndimension() == 3:
         img = img.unsqueeze(0)
-
     # Load model
     model = DetectMultiBackend(weights, device=device, dnn=False)
-    model.eval()
-
+    names = model.names
+    #model.eval()
     # Inference
     pred = model(img, augment=False, visualize=False)
-
     # Apply NMS
     pred = non_max_suppression(pred, conf_thres, iou_thres)
 
@@ -71,7 +70,7 @@ def detect_pil_image(pil_img, weights='yolov9.pt', img_size=640, conf_thres=0.25
                 bbox = [x1, y1, x2, y2]
                 score = float(conf)
                 category = int(cls)
-                label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                label = f'{names[category]} {conf:.2f}'
                 detections.append({"bbox": bbox, "score": score, "category": label})
 
     return detections
